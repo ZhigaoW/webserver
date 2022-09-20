@@ -1,3 +1,6 @@
+#ifndef REACTOR_H
+#define REACTOR_H
+
 // 0. data struct
 //      1. event 对应于一个io事件的描述
 //      2. eventblock 存储一堆io事件的block
@@ -27,64 +30,13 @@
 // 6. socket_destory
 //      释放socket的资源
 
-
-
-
 /***************************************************************
 SOME QUESTION
 1. 存储event的数据结构为啥用 链表 + 数组，event事件为啥不会被删除
 ***************************************************************/
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/epoll.h>
-#include <arpa/inet.h>
-
-#include <fcntl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <time.h>
-
-#define BUFFER_LENGTH 4096
-#define MAX_EPOLL_EVENTS 1024
-#define SERVER_PORT 8888
-#define PORT_COUNT 100
-
-typedef int NCALLBACK(int, int, void *);
-
-// 一个connectfd一个ntyevent吗
-// 还是一个事件一个ntyevent
-struct ntyevent {
-	int   fd;
-	int   events;
-	void *arg;
-	int (*callback)(int fd, int events, void *arg);
-
-	int status; // 后面用于判断fd有没有被加入epoll内核的数据结构
-	// 如果没有读完就到了写的时候，数据会不会乱掉
-	char buffer[BUFFER_LENGTH];
-	int  length;
-	long last_active; // 判断一段时间不发数据fd
-};
-
-/*
- 用来链表来存储 ntyevent
- */
-struct eventblock {
-	struct eventblock *next;
-	struct ntyevent *  events;
-};
-
-/* 
-用来存储epoll创建的数据和 eventblock
-*/
-struct ntyreactor {
-	int		   epfd;
-	int		   blkcnt;
-	struct eventblock *evblk; //fd --> 100w
-};
+#include "http.h"
+#include "event.h"
 
 int recv_cb(int fd, int events, void *arg);
 int send_cb(int fd, int events, void *arg);
@@ -160,8 +112,14 @@ int recv_cb(int fd, int events, void *arg)
 	struct ntyreactor *reactor = (struct ntyreactor *)arg;
 	struct ntyevent *  ev	   = ntyreactor_idx(reactor, fd);
 
-	// !水平触发，一个recv函数就会读完吗，溢出咋办
+	// 1. 一个recv函数就会读完吗，溢出咋办
+	//      1. 水平触发，如果没有读完，会继续触发
+	// 2. 在http_request函数判断一下读完了
 	int len = recv(fd, ev->buffer, BUFFER_LENGTH, 0);
+	// 1. http粘包
+	//      1. \r\n\r\n
+	//      2. 定义包的长度
+
 	nty_event_del(reactor->epfd, ev);
 
 	if (len > 0) {
@@ -170,6 +128,10 @@ int recv_cb(int fd, int events, void *arg)
 
 		printf("C[%d]:%s\n", fd, ev->buffer);
 
+		http_request(ev);
+
+		// !是不是应该delete
+		// nty_event_del(reactor->epfd, ev);
 		nty_event_set(ev, fd, send_cb, reactor);
 		nty_event_add(reactor->epfd, EPOLLOUT, ev);
 
@@ -193,7 +155,10 @@ int send_cb(int fd, int events, void *arg)
 	struct ntyreactor *reactor = (struct ntyreactor *)arg;
 	struct ntyevent *  ev	   = ntyreactor_idx(reactor, fd);
 
+	http_response(ev);
+
 	int len = send(fd, ev->buffer, ev->length, 0);
+
 	if (len > 0) {
 		printf("send[fd=%d], [%d]%s\n", fd, len, ev->buffer);
 
@@ -471,6 +436,8 @@ int ntyreactor_run(struct ntyreactor *reactor)
 	}
 }
 
+#if 0
+
 // 3, 6w, 1, 100 ==
 // <remoteip, remoteport, localip, localport>
 int main(int argc, char *argv[])
@@ -504,3 +471,7 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
+
+#endif
+
+#endif

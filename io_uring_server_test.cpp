@@ -88,7 +88,12 @@ int main()
                         cqe = cqes[i];
                         struct ioinfo ii;
                         memcpy(&ii, &(cqe->user_data), sizeof(ii));
+
+                        if(ii.type == ACCEPT) {
+                                printf("NEW CLINET\n");
+                        }
                 }
+
                 
 
         }
